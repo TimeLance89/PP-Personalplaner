@@ -167,7 +167,18 @@ def _m365_send(db: Database, settings: Settings, values: dict[str, Any], to: str
         raise MailDeliveryError(f"Microsoft Graph ist nicht erreichbar: {exc.reason}") from exc
 
 
-def send_mail(settings: Settings, to: str, subject: str, body: str, *, context: str = "generic") -> None:
+def _is_agency_recipient(db: Database, to: str) -> bool:
+    recipients = {address.lower() for address in _addresses(to)}
+    if not recipients:
+        return False
+    for row in db.all("SELECT email FROM agencies WHERE active=1 AND email<>''"):
+        agency_addresses = {address.lower() for address in _addresses(row.get("email", ""))}
+        if recipients & agency_addresses:
+            return True
+    return False
+
+
+def send_mail(settings: Settings, to: str, subject: str, body: str, *, context: str = "auto") -> None:
     if not to or not _addresses(to):
         raise MailConfigurationError("Bei der Zeitarbeitsfirma ist keine E-Mail-Adresse hinterlegt.")
 
@@ -179,7 +190,8 @@ def send_mail(settings: Settings, to: str, subject: str, body: str, *, context: 
 
     cc = _addresses(str(values.get("mail_default_cc", "")))
     bcc = _addresses(str(values.get("mail_default_bcc", "")))
-    if context == "offboarding" and bool(values.get("notify_admin_on_offboarding")):
+    is_offboarding = context == "offboarding" or (context == "auto" and _is_agency_recipient(db, to))
+    if is_offboarding and bool(values.get("notify_admin_on_offboarding")):
         admin_email = str(values.get("notification_admin_email", "")).strip()
         if admin_email and admin_email not in cc:
             cc.append(admin_email)
