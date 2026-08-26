@@ -20,7 +20,7 @@ db.initialize()
 
 app = FastAPI(title="PP – Personalplaner", version="0.2.0", docs_url=None, redoc_url=None)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
-app.add_middleware(PersonnelGuardMiddleware, db=db)
+app.add_middleware(PersonnelGuardMiddleware, db=db, settings=settings)
 app.include_router(build_router(db, settings))
 app.include_router(build_admin_settings_router(db, settings))
 
