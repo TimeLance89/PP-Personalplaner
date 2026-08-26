@@ -87,7 +87,7 @@ def _write_workflow_config(db: Database, values: dict[str, Any], user_id: int) -
                 raise HTTPException(status_code=422, detail=f"Ungültiger Wert für {key}") from exc
     with db.transaction() as conn:
         for key, value in clean.items():
-            encoded = "true" if value is True else "false" if value is False else str(value)
+            encoded = "1" if value is True else "" if value is False else str(value)
             conn.execute(
                 """INSERT INTO system_settings(key,value,is_secret,updated_at,updated_by)
                    VALUES (?,?,0,?,?) ON CONFLICT(key) DO UPDATE SET
