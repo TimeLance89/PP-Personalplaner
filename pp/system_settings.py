@@ -23,6 +23,12 @@ BOOL_KEYS = {
     "offboarding_allow_same_day",
     "notify_admin_on_offboarding",
     "audit_enabled",
+    "automation_emergency_stop",
+    "automation_retry_failed_mail",
+    "automation_watch_upcoming",
+    "automation_watch_unassigned",
+    "automation_watch_assignment_end",
+    "automation_housekeeping",
 }
 
 INT_KEYS = {
@@ -30,6 +36,11 @@ INT_KEYS = {
     "offboarding_default_days",
     "session_hours_override",
     "audit_retention_days",
+    "automation_interval_minutes",
+    "automation_retry_after_minutes",
+    "automation_retry_max_attempts",
+    "automation_upcoming_days",
+    "automation_assignment_end_days",
 }
 
 EDITABLE_KEYS = {
@@ -67,6 +78,18 @@ EDITABLE_KEYS = {
     "session_hours_override",
     "audit_enabled",
     "audit_retention_days",
+    "autonomy_mode",
+    "automation_emergency_stop",
+    "automation_interval_minutes",
+    "automation_retry_failed_mail",
+    "automation_retry_after_minutes",
+    "automation_retry_max_attempts",
+    "automation_watch_upcoming",
+    "automation_upcoming_days",
+    "automation_watch_unassigned",
+    "automation_watch_assignment_end",
+    "automation_assignment_end_days",
+    "automation_housekeeping",
 }
 
 M365_INTERNAL_KEYS = {
@@ -164,6 +187,18 @@ def defaults(settings: Settings) -> dict[str, Any]:
         "session_hours_override": settings.session_hours,
         "audit_enabled": True,
         "audit_retention_days": 3650,
+        "autonomy_mode": "manual",
+        "automation_emergency_stop": False,
+        "automation_interval_minutes": 5,
+        "automation_retry_failed_mail": True,
+        "automation_retry_after_minutes": 15,
+        "automation_retry_max_attempts": 5,
+        "automation_watch_upcoming": True,
+        "automation_upcoming_days": 7,
+        "automation_watch_unassigned": True,
+        "automation_watch_assignment_end": True,
+        "automation_assignment_end_days": 3,
+        "automation_housekeeping": False,
     }
 
 
