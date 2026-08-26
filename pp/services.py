@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from .config import Settings
 from .db import Database, json_load, utcnow
+from .system_settings import get_all
 
 FIELD_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,48}$")
 
@@ -86,41 +87,52 @@ def active_assignment_for_worker(db: Database, worker_id: int, department_id: in
     return rows[0] if rows else None
 
 
+class _SafeFormat(dict[str, str]):
+    def __missing__(self, key: str) -> str:
+        return "{" + key + "}"
+
+
 def offboarding_message(settings: Settings, record: dict[str, Any], reason_label: str, requested_by: str) -> tuple[str, str]:
+    db = Database(settings.data_dir / "personalplaner.sqlite3")
+    values = get_all(db, settings)
     effective = record["effective_at"]
     try:
         effective = date.fromisoformat(effective).strftime("%d.%m.%Y")
     except ValueError:
         pass
     replacement = "Ja" if record["replacement_required"] else "Nein"
-    subject = f"Abmeldung Zeitarbeit: {record['first_name']} {record['last_name']} zum {effective}"
-    lines = [
-        "Guten Tag,",
-        "",
-        f"hiermit melden wir folgende Zeitarbeitskraft bei {record['agency_name']} ab:",
-        "",
-        f"Mitarbeiter: {record['first_name']} {record['last_name']}",
-    ]
-    if record.get("employee_code"):
-        lines.append(f"Personal-/Kennnummer: {record['employee_code']}")
-    lines.extend([
-        f"Abteilung: {record['department_name']}",
-        f"Abmeldung wirksam zum: {effective}",
-        f"Grund: {reason_label}",
-    ])
-    if record.get("reason_text"):
-        lines.append(f"Zusatz: {record['reason_text']}")
-    lines.append(f"Ersatz wird benötigt: {replacement}")
-    if record.get("replacement_notes"):
-        lines.append(f"Hinweis zum Ersatz: {record['replacement_notes']}")
-    lines.extend([
-        "",
-        f"Angefordert von: {requested_by}",
-        "",
-        "Viele Grüße",
-        settings.company_contact,
-        settings.company_name,
-        "",
-        "Diese Nachricht wurde durch PP – Personalplaner erstellt.",
-    ])
-    return subject, "\n".join(lines)
+    employee_name = f"{record['first_name']} {record['last_name']}".strip()
+    employee_code = str(record.get("employee_code") or "").strip()
+    reason_text = str(record.get("reason_text") or "").strip()
+    replacement_notes = str(record.get("replacement_notes") or "").strip()
+
+    context = _SafeFormat(
+        employee_name=employee_name,
+        first_name=str(record.get("first_name") or ""),
+        last_name=str(record.get("last_name") or ""),
+        employee_code=employee_code,
+        employee_code_line=f"Personal-/Kennnummer: {employee_code}\n" if employee_code else "",
+        agency_name=str(record.get("agency_name") or ""),
+        department_name=str(record.get("department_name") or ""),
+        effective_date=effective,
+        reason=reason_label,
+        reason_text=reason_text,
+        reason_text_line=f"Zusatz: {reason_text}\n" if reason_text else "",
+        replacement=replacement,
+        replacement_notes=replacement_notes,
+        replacement_notes_line=f"Hinweis zum Ersatz: {replacement_notes}\n" if replacement_notes else "",
+        requested_by=requested_by,
+        company_name=str(values.get("company_name") or settings.company_name),
+        company_contact=str(values.get("company_contact") or settings.company_contact),
+        company_email=str(values.get("company_email") or ""),
+        company_phone=str(values.get("company_phone") or ""),
+        company_site=str(values.get("company_site") or ""),
+    )
+    subject_template = str(values.get("offboarding_subject_template") or "Abmeldung Zeitarbeit: {employee_name} zum {effective_date}")
+    body_template = str(values.get("offboarding_body_template") or "")
+    try:
+        subject = subject_template.format_map(context).strip()
+        body = body_template.format_map(context).strip()
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=500, detail=f"Abmelde-Mailvorlage ist ungültig: {exc}") from exc
+    return subject, body
