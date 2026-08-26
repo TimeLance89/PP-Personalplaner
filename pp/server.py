@@ -10,6 +10,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .absence_api import build_absence_router
+from .absence_service import ensure_absence_schema
 from .admin_maintenance_api import build_admin_maintenance_router
 from .admin_settings_api import build_admin_settings_router
 from .api import build_router
@@ -29,6 +31,7 @@ db.initialize()
 ensure_system_settings_schema(db)
 ensure_automation_schema(db)
 ensure_workflow_schema(db)
+ensure_absence_schema(db)
 
 
 @asynccontextmanager
@@ -50,10 +53,11 @@ async def lifespan(app: FastAPI):
                 task.cancel()
 
 
-app = FastAPI(title="PP – Personalplaner", version="0.4.0", docs_url=None, redoc_url=None, lifespan=lifespan)
+app = FastAPI(title="PP – Personalplaner", version="0.5.0", docs_url=None, redoc_url=None, lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 app.add_middleware(PersonnelGuardMiddleware, db=db, settings=settings)
 app.include_router(build_router(db, settings))
+app.include_router(build_absence_router(db, settings))
 app.include_router(build_admin_settings_router(db, settings))
 app.include_router(build_admin_maintenance_router(db, settings))
 app.include_router(build_automation_router(db, settings))
