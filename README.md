@@ -1,10 +1,12 @@
 # PP – Personalplaner
 
-**PP** ist eine selbst gehostete interne Webanwendung zur Verwaltung von Zeitarbeitspersonal über mehrere Abteilungen hinweg.
+**PP** ist eine selbst gehostete interne Webanwendung zur Verwaltung und operativen Steuerung von Zeitarbeitspersonal über mehrere Abteilungen hinweg.
 
 ## Ziel
 
 Der Administrator verwaltet Abteilungen, Zeitarbeitsfirmen, Personal, Zuteilungen und Bereichsleiter-Zugänge. Jeder Bereichsleiter sieht serverseitig ausschließlich die eigene Abteilung. Nicht mehr benötigtes Personal kann mit Datum, Grund und Ersatzwunsch abgemeldet werden; PP erstellt daraus automatisch eine vollständige E-Mail an die zuständige Zeitarbeitsfirma und protokolliert Versand und Historie.
+
+PP soll dabei möglichst wenig Verwaltungsarbeit beim Benutzer lassen. Routinevorgänge können – wenn der Administrator dies freigibt – autonom überwacht, vorbereitet und ausgeführt werden. Personalentscheidungen selbst bleiben bewusst beim Menschen.
 
 ## Bereits umgesetzt
 
@@ -25,11 +27,23 @@ Der Administrator verwaltet Abteilungen, Zeitarbeitsfirmen, Personal, Zuteilunge
 - Testmail direkt aus der Admin-Oberfläche
 - sichtbarer Mailstatus und erneuter Versand bei Fehlern
 - Firmen-/Standort- und Ansprechpartnerdaten in der Admin-Oberfläche
+- **Autonomie-Modi: Manuell, Assistent, Regelbetrieb und Autopilot**
+- automatischer Retry fehlgeschlagener Abmelde-Mails
+- automatische Erkennung von Fristen, unzugeteiltem Personal und auslaufenden Einsätzen
+- **PP Work Inbox** mit Trennung zwischen „Du entscheidest“, „PP kümmert sich“ und „Beobachten“
+- automatische Vorbereitung von Entscheidungen vor dem Ende einer befristeten Zuteilung
+- direkte Verlängerung eines Einsatzes aus dem vorbereiteten Entscheidungsvorgang
+- automatische Neuplanung des nächsten Prüfpunktes nach einer Verlängerung
+- tägliche, benutzerspezifische Briefings für Administratoren und Bereichsleiter
+- optionale Briefing-E-Mail pro Benutzer; In-App-Briefing funktioniert immer
+- serverseitige Abteilungsbegrenzung auch für Inbox und Briefings
+- automatisches Deduplizieren erledigter oder bereits durch eine Abmeldung entschiedener Vorgänge
+- Not-Aus für alle autonomen Aktionen
 - Audit-Log für administrative und personalrelevante Aktionen
 - Admin-Funktion zum Beenden anderer aktiver Sitzungen
-- konfigurierbare Audit-Aufbewahrung mit manueller Bereinigung
+- konfigurierbare Audit-Aufbewahrung mit manueller und optional automatischer Bereinigung
 - Argon2id-Passworthashing, serverseitige Sitzungen, CSRF-Schutz und Login-Rate-Limit
-- responsive Weboberfläche für Desktop, Tablet und Smartphone
+- responsive Warehouse-/Fashion-Tech-Oberfläche für Desktop, Tablet und Smartphone
 - SQLite-Persistenz im NAS-Datenvolume
 - gehärteter Docker-Container mit Healthcheck und restriktiver Dateiumask
 - GitHub Actions für Python-Tests, JavaScript-Syntaxprüfung und Docker-Build
@@ -41,14 +55,56 @@ Zeitarbeitsfirma
       │
       └── Zeitarbeiter ── Zuteilung ── Abteilung ── Bereichsleiter
                              │
-                             └── Abmeldung
-                                   ├── Wirksamkeitsdatum
-                                   ├── Grund
-                                   ├── Ersatz ja/nein
-                                   └── E-Mail + Versandstatus
+                             ├── Abmeldung
+                             │     ├── Wirksamkeitsdatum
+                             │     ├── Grund
+                             │     ├── Ersatz ja/nein
+                             │     └── E-Mail + Versandstatus
+                             │
+                             └── Workflow Center
+                                   ├── geplanter Prüfpunkt
+                                   ├── vorbereitete Entscheidung
+                                   ├── PP Work Inbox
+                                   └── Tagesbriefing
 ```
 
 Eine Person wird bei einer Abmeldung nicht gelöscht. Die bestehende Zuteilung erhält ein Enddatum und der Vorgang bleibt nachvollziehbar.
+
+## Autonomie-Modell
+
+Unter **System → Autonomie & Regeln** kann der Administrator festlegen, wie selbstständig PP arbeiten darf:
+
+1. **Manuell** – keine Hintergrundüberwachung; alle Vorgänge werden bewusst durch Benutzer ausgelöst.
+2. **Assistent** – PP überwacht und bereitet vor, führt aber keine externen Aktionen selbst aus.
+3. **Regelbetrieb** – ausdrücklich freigegebene Verwaltungsaktionen werden selbstständig ausgeführt, z. B. Retry einer fehlgeschlagenen Abmelde-Mail.
+4. **Autopilot** – zusätzlich darf PP freigegebene technische Selbstpflege durchführen.
+
+Der **Not-Aus** stoppt sämtliche autonomen Aktionen sofort.
+
+PP trifft keine autonome Entscheidung darüber, welcher Mensch abgemeldet werden soll. Das System darf die Entscheidung vorbereiten und nach einer menschlichen Entscheidung die administrative Folgearbeit übernehmen.
+
+## PP Work Inbox
+
+Der Control Tower zeigt eine kompakte Arbeits-Inbox mit drei Zuständen:
+
+- **Du entscheidest** – z. B. ein befristeter Einsatz läuft aus und muss verlängert oder beendet werden.
+- **PP kümmert sich** – ein freigegebener Routinevorgang wird bereits automatisch bearbeitet.
+- **Beobachten** – PP überwacht einen Termin oder Status, ohne dass aktuell eine Entscheidung erforderlich ist.
+
+Befristete Zuteilungen können automatisch mehrere Tage vor dem Enddatum vorbereitet werden. Wird der Einsatz verlängert, aktualisiert PP das Enddatum und plant den nächsten Prüfpunkt neu. Existiert bereits eine wirksame Abmeldung, wird ein redundanter Verlängerungsentscheid automatisch geschlossen.
+
+## Tagesbriefing
+
+PP erzeugt auf Wunsch jeden Morgen ein Briefing pro aktivem Benutzer. Das Briefing ist rollen- und abteilungsbezogen und enthält unter anderem:
+
+- aktuell eingesetztes Personal
+- offene Entscheidungen
+- Vorgänge, die PP gerade selbst bearbeitet
+- kommende Abmeldungen
+- fehlgeschlagene Kommunikation
+- für Administratoren zusätzlich unzugeteiltes Personal
+
+Die Uhrzeit, der Vorschauzeitraum und die automatische Vorbereitung auslaufender Einsätze sind in der Admin-Oberfläche konfigurierbar. Für jeden Benutzer kann separat eine E-Mail-Adresse hinterlegt und der E-Mail-Versand aktiviert werden. Automatische Briefing-Mails werden nur im **Regelbetrieb** oder **Autopilot** versendet; in PP selbst steht das Briefing unabhängig davon bereit.
 
 ## Schnellstart mit Docker
 
@@ -75,6 +131,7 @@ Mit diesem Token wird der erste Administrator angelegt. Danach ist die Setup-Rou
 Unter **Verwaltung** stehen getrennte Bereiche zur Verfügung:
 
 - **Unternehmen** – Firma, Standort, Adresse und zentrale Kontaktdaten
+- **Autonomie & Regeln** – Autonomiegrad, Retry-Regeln, Fristen, Briefing und vorbereitete Entscheidungen
 - **E-Mail & Microsoft 365** – Versandweg, SMTP, Microsoft OAuth, CC/BCC, Reply-To und Testmail
 - **Abmeldeprozess** – globale Vorgaben und Mailvorlagen
 - **Abteilungen** – Organisationsstruktur
@@ -103,7 +160,7 @@ Alternativ kann PP weiterhin klassisch über SMTP versenden. SMTP-Server, Port, 
 
 ## Persistenz und Geheimnisse
 
-Personaldaten und Systemkonfiguration liegen ausschließlich im persistenten `data/`-Verzeichnis. Dazu gehören auch sensible Werte wie SMTP-Passwort, Microsoft Client Secret und OAuth-Tokens. Diese Werte werden nicht in Git gespeichert und von der Admin-API nicht im Klartext zurückgegeben.
+Personaldaten, Workflow-Daten und Systemkonfiguration liegen ausschließlich im persistenten `data/`-Verzeichnis. Dazu gehören auch sensible Werte wie SMTP-Passwort, Microsoft Client Secret und OAuth-Tokens. Diese Werte werden nicht in Git gespeichert und von der Admin-API nicht im Klartext zurückgegeben.
 
 Der Container startet mit einer restriktiven Dateiumask (`077`). Der `data/`-Ordner ist trotzdem wie eine Datenbank mit Zugangsdaten zu behandeln: Zugriffsrechte begrenzen und regelmäßig sichern.
 
