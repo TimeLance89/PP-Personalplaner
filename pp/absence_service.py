@@ -39,6 +39,7 @@ def ensure_absence_schema(db: Database) -> None:
                 starts_on TEXT NOT NULL,
                 ends_on TEXT NOT NULL,
                 day_part TEXT NOT NULL DEFAULT 'full' CHECK(day_part IN ('full','morning','afternoon')),
+                open_ended INTEGER NOT NULL DEFAULT 0,
                 note TEXT NOT NULL DEFAULT '',
                 recorded_by INTEGER REFERENCES users(id),
                 created_at TEXT NOT NULL,
@@ -59,6 +60,9 @@ def ensure_absence_schema(db: Database) -> None:
             CREATE INDEX IF NOT EXISTS idx_monthly_absence_reports_month ON monthly_absence_reports(report_month);
             """
         )
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(absences)").fetchall()}
+        if "open_ended" not in columns:
+            conn.execute("ALTER TABLE absences ADD COLUMN open_ended INTEGER NOT NULL DEFAULT 0")
         count = conn.execute("SELECT COUNT(*) FROM absence_types").fetchone()[0]
         if count == 0:
             conn.executemany(
@@ -92,10 +96,28 @@ def working_days(start: date, end: date, day_part: str = "full") -> float:
     return total
 
 
-def clipped_working_days(starts_on: str, ends_on: str, month: str, day_part: str = "full") -> float:
+def _effective_end(ends_on: str, open_ended: bool, month: str | None = None) -> date:
+    if not open_ended:
+        return date.fromisoformat(ends_on)
+    today = date.today()
+    if not month:
+        return today
+    month_start, month_end = month_bounds(month)
+    if today < month_start:
+        return month_start - timedelta(days=1)
+    return min(today, month_end)
+
+
+def clipped_working_days(
+    starts_on: str,
+    ends_on: str,
+    month: str,
+    day_part: str = "full",
+    open_ended: bool = False,
+) -> float:
     month_start, month_end = month_bounds(month)
     start = max(date.fromisoformat(starts_on), month_start)
-    end = min(date.fromisoformat(ends_on), month_end)
+    end = min(_effective_end(ends_on, open_ended, month), month_end)
     return working_days(start, end, day_part) if start <= end else 0.0
 
 
@@ -113,7 +135,8 @@ def assignment_allows_absence(db: Database, worker_id: int, department_id: int, 
 
 def overlapping_absence(db: Database, worker_id: int, starts_on: str, ends_on: str, exclude_id: int | None = None) -> dict[str, Any] | None:
     sql = """SELECT a.id,t.label FROM absences a JOIN absence_types t ON t.id=a.absence_type_id
-             WHERE a.worker_id=? AND date(a.starts_on)<=date(?) AND date(a.ends_on)>=date(?)"""
+             WHERE a.worker_id=? AND date(a.starts_on)<=date(?)
+               AND (a.open_ended=1 OR date(a.ends_on)>=date(?))"""
     params: tuple[Any, ...] = (worker_id, ends_on, starts_on)
     if exclude_id is not None:
         sql += " AND a.id!=?"
@@ -130,7 +153,7 @@ def absence_rows(db: Database, *, department_id: int | None = None, month: str |
         params.append(department_id)
     if month:
         start, end = month_bounds(month)
-        where.append("date(a.starts_on)<=date(?) AND date(a.ends_on)>=date(?)")
+        where.append("date(a.starts_on)<=date(?) AND (a.open_ended=1 OR date(a.ends_on)>=date(?))")
         params.extend([end.isoformat(), start.isoformat()])
     rows = db.all(
         f"""SELECT a.*,t.label AS absence_type,t.code AS absence_code,
@@ -143,14 +166,17 @@ def absence_rows(db: Database, *, department_id: int | None = None, month: str |
             JOIN departments d ON d.id=a.department_id
             LEFT JOIN users u ON u.id=a.recorded_by
             WHERE {' AND '.join(where)}
-            ORDER BY date(a.starts_on) DESC,a.id DESC""",
+            ORDER BY a.open_ended DESC,date(a.starts_on) DESC,a.id DESC""",
         tuple(params),
     )
     for row in rows:
+        open_ended = bool(row.get("open_ended"))
+        effective_end = _effective_end(row["ends_on"], open_ended, month)
+        row["effective_ends_on"] = effective_end.isoformat() if effective_end >= date.fromisoformat(row["starts_on"]) else None
         row["working_days"] = (
-            clipped_working_days(row["starts_on"], row["ends_on"], month, row["day_part"])
+            clipped_working_days(row["starts_on"], row["ends_on"], month, row["day_part"], open_ended)
             if month
-            else working_days(date.fromisoformat(row["starts_on"]), date.fromisoformat(row["ends_on"]), row["day_part"])
+            else working_days(date.fromisoformat(row["starts_on"]), effective_end, row["day_part"])
         )
     return rows
 
@@ -217,6 +243,7 @@ def build_monthly_report(db: Database, month: str, department_id: int | None = N
                 "absence_code": row["absence_code"],
                 "starts_on": row["starts_on"],
                 "ends_on": row["ends_on"],
+                "open_ended": bool(row.get("open_ended")),
                 "day_part": row["day_part"],
                 "days_in_month": round(float(row["working_days"]), 2),
             }
