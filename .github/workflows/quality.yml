@@ -17,6 +17,7 @@ jobs:
           python-version: '3.12'
       - run: pip install -r requirements-dev.lock
       - run: python -m compileall -q pp server.py container_entrypoint.py
+      - run: node --check pp/static/app.js
       - run: python -m unittest discover -s tests -v
 
   docker:
