@@ -16,6 +16,15 @@ PP soll dabei möglichst wenig Verwaltungsarbeit beim Benutzer lassen. Routinevo
 - Zeitarbeiter-Stammdaten und Zuteilungen
 - unzugeteiltes Personal in der Admin-Sicht
 - frei definierbare Zusatzfelder für Personal und Abteilungen
+- **Abwesenheiten und Krankentage durch Bereichsleiter erfassbar**
+- Krankheit, Urlaub, unentschuldigte und sonstige Abwesenheiten als getrennte Arten
+- ganztägige sowie halbtägige Abwesenheiten
+- Arbeitstage Montag–Freitag statt bloßer Kalendertage in der Auswertung
+- serverseitige Prüfung, dass der komplette Abwesenheitszeitraum zur Zuteilung des Bereichsleiters gehört
+- Monatsauswertung pro Abteilung und als Gesamtbetrieb
+- automatische Vormonats-Snapshots unabhängig vom Autonomiegrad
+- CSV-Export der Monatsberichte
+- Reports nach Mitarbeiter, Zeitarbeitsfirma, Bereich, Abwesenheits- und Krankentagen
 - konfigurierbare Abmeldegründe
 - Abmeldeworkflow mit Wirksamkeitsdatum, Erläuterung und Ersatzwunsch
 - globale Admin-Regeln für Standarddatum, Pflichtbegründung und Ersatzwunsch
@@ -55,6 +64,12 @@ Zeitarbeitsfirma
       │
       └── Zeitarbeiter ── Zuteilung ── Abteilung ── Bereichsleiter
                              │
+                             ├── Abwesenheit
+                             │     ├── Art
+                             │     ├── Von / Bis
+                             │     ├── ganzer / halber Tag
+                             │     └── Monatsbericht
+                             │
                              ├── Abmeldung
                              │     ├── Wirksamkeitsdatum
                              │     ├── Grund
@@ -69,6 +84,37 @@ Zeitarbeitsfirma
 ```
 
 Eine Person wird bei einer Abmeldung nicht gelöscht. Die bestehende Zuteilung erhält ein Enddatum und der Vorgang bleibt nachvollziehbar.
+
+## Abwesenheiten & Krankentage
+
+Bereichsleiter können unter **Abwesenheiten** ausschließlich für Personal ihrer eigenen Abteilung Einträge erfassen. Der Zeitraum muss vollständig innerhalb einer passenden Zuteilung liegen. PP verhindert überlappende Einträge für dieselbe Person.
+
+Standardmäßig stehen folgende Arten zur Verfügung:
+
+- Krankheit
+- Urlaub
+- Unentschuldigt
+- Arzttermin / sonstige Abwesenheit
+
+Ein Eintrag kann ganztägig, vormittags oder nachmittags sein. Für Berichte zählt PP nur Montag bis Freitag; halbe Tage werden mit `0,5` gezählt. Wochenenden erhöhen die Krankentage nicht.
+
+Bei Krankheit soll bewusst **keine Diagnose** dokumentiert werden. Eine sachliche Notiz ist optional, wird aber nicht in den Monatsbericht übernommen.
+
+## Monatsberichte
+
+Unter **Berichte** können Bereichsleiter ihre eigene Abteilung und Administratoren wahlweise einzelne Abteilungen oder den Gesamtbetrieb auswerten.
+
+Ein Monatsbericht enthält unter anderem:
+
+- Anzahl der Abwesenheitseinträge
+- betroffene Mitarbeiter
+- gesamte Abwesenheitstage
+- Krankentage
+- Aufteilung nach Abwesenheitsart
+- Auswertung je Mitarbeiter
+- Zeitarbeitsfirma und Abteilung
+
+Nach Beginn eines neuen Monats erzeugt PP automatisch einen Snapshot des Vormonats – einmal für jede aktive Abteilung und zusätzlich für den Gesamtbetrieb. Diese Berichtserzeugung läuft auch im manuellen Autonomie-Modus, weil sie zur Dokumentation gehört. Bei nachträglichen Korrekturen kann ein Monatsbericht erneut abgeschlossen werden. Zusätzlich steht ein CSV-Export bereit.
 
 ## Autonomie-Modell
 
@@ -160,10 +206,10 @@ Alternativ kann PP weiterhin klassisch über SMTP versenden. SMTP-Server, Port, 
 
 ## Persistenz und Geheimnisse
 
-Personaldaten, Workflow-Daten und Systemkonfiguration liegen ausschließlich im persistenten `data/`-Verzeichnis. Dazu gehören auch sensible Werte wie SMTP-Passwort, Microsoft Client Secret und OAuth-Tokens. Diese Werte werden nicht in Git gespeichert und von der Admin-API nicht im Klartext zurückgegeben.
+Personaldaten, Abwesenheitsdaten, Monatsberichte, Workflow-Daten und Systemkonfiguration liegen ausschließlich im persistenten `data/`-Verzeichnis. Dazu gehören auch sensible Werte wie SMTP-Passwort, Microsoft Client Secret und OAuth-Tokens. Diese Werte werden nicht in Git gespeichert und von der Admin-API nicht im Klartext zurückgegeben.
 
 Der Container startet mit einer restriktiven Dateiumask (`077`). Der `data/`-Ordner ist trotzdem wie eine Datenbank mit Zugangsdaten zu behandeln: Zugriffsrechte begrenzen und regelmäßig sichern.
 
 ## Datenschutz
 
-PP enthält personenbezogene Daten. Es sollte nur intern bzw. hinter einer abgesicherten HTTPS-Zugangsschicht betrieben werden. Es sollten nur Datenfelder angelegt werden, die für die Personaldisposition tatsächlich erforderlich sind. Details: [SECURITY.md](SECURITY.md).
+PP enthält personenbezogene Daten. Abwesenheits- und insbesondere Krankheitsdaten sind besonders schützenswert. Es sollten keine Diagnosen oder unnötigen medizinischen Details gespeichert werden. PP sollte nur intern bzw. hinter einer abgesicherten HTTPS-Zugangsschicht betrieben werden. Es sollten nur Datenfelder angelegt werden, die für die Personaldisposition tatsächlich erforderlich sind. Details: [SECURITY.md](SECURITY.md).
