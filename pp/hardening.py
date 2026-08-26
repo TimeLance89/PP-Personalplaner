@@ -8,8 +8,10 @@ from fastapi import HTTPException, Request
 from starlette.responses import JSONResponse
 
 from .auth import current_user
+from .config import Settings
 from .db import Database
 from .services import active_assignment_for_worker
+from .system_settings import get_all
 
 ASGIApp = Callable[[dict[str, Any], Callable[..., Awaitable[dict[str, Any]]], Callable[..., Awaitable[None]]], Awaitable[None]]
 
@@ -28,9 +30,10 @@ def _parse_day(value: Any, label: str) -> date:
 class PersonnelGuardMiddleware:
     """Additional privacy and temporal integrity checks around the personnel API."""
 
-    def __init__(self, app: ASGIApp, db: Database):
+    def __init__(self, app: ASGIApp, db: Database, settings: Settings):
         self.app = app
         self.db = db
+        self.settings = settings
 
     async def __call__(self, scope: dict[str, Any], receive: Callable[..., Awaitable[dict[str, Any]]], send: Callable[..., Awaitable[None]]) -> None:
         if scope.get("type") != "http":
@@ -80,9 +83,15 @@ class PersonnelGuardMiddleware:
                 if not worker or worker["status"] != "active":
                     raise ValueError("Nur aktive Zeitarbeiter können zugeteilt werden")
             else:
+                policy = get_all(self.db, self.settings)
                 effective = _parse_day(payload.get("effective_at"), "Abmeldedatum")
-                if effective < date.today():
+                today = date.today()
+                if effective < today:
                     raise ValueError("Das Abmeldedatum darf nicht in der Vergangenheit liegen")
+                if not bool(policy.get("offboarding_allow_same_day", True)) and effective <= today:
+                    raise ValueError("Abmeldungen am selben Tag sind laut Systemeinstellung nicht erlaubt")
+                if bool(policy.get("offboarding_require_reason_text")) and not str(payload.get("reason_text") or "").strip():
+                    raise ValueError("Eine Erläuterung zur Abmeldung ist verpflichtend")
                 worker_id = int(payload.get("worker_id"))
                 try:
                     user = current_user(self.db, request)
