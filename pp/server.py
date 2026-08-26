@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .admin_maintenance_api import build_admin_maintenance_router
 from .admin_settings_api import build_admin_settings_router
 from .api import build_router
 from .config import load_settings
@@ -23,6 +24,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 app.add_middleware(PersonnelGuardMiddleware, db=db, settings=settings)
 app.include_router(build_router(db, settings))
 app.include_router(build_admin_settings_router(db, settings))
+app.include_router(build_admin_maintenance_router(db, settings))
 
 STATIC = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
