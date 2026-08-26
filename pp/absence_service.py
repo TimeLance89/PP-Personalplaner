@@ -147,8 +147,10 @@ def absence_rows(db: Database, *, department_id: int | None = None, month: str |
         tuple(params),
     )
     for row in rows:
-        row["working_days"] = working_days(
-            date.fromisoformat(row["starts_on"]), date.fromisoformat(row["ends_on"]), row["day_part"]
+        row["working_days"] = (
+            clipped_working_days(row["starts_on"], row["ends_on"], month, row["day_part"])
+            if month
+            else working_days(date.fromisoformat(row["starts_on"]), date.fromisoformat(row["ends_on"]), row["day_part"])
         )
     return rows
 
@@ -164,7 +166,7 @@ def build_monthly_report(db: Database, month: str, department_id: int | None = N
     sick_days = 0.0
 
     for row in rows:
-        days = clipped_working_days(row["starts_on"], row["ends_on"], month, row["day_part"])
+        days = float(row["working_days"])
         if days <= 0:
             continue
         total_days += days
@@ -216,7 +218,7 @@ def build_monthly_report(db: Database, month: str, department_id: int | None = N
                 "starts_on": row["starts_on"],
                 "ends_on": row["ends_on"],
                 "day_part": row["day_part"],
-                "days_in_month": round(clipped_working_days(row["starts_on"], row["ends_on"], month, row["day_part"]), 2),
+                "days_in_month": round(float(row["working_days"]), 2),
             }
             for row in rows
         ],
