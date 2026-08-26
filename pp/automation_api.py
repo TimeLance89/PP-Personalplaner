@@ -11,6 +11,7 @@ from .config import Settings
 from .db import Database, utcnow
 from .services import audit
 from .system_settings import get_all, set_values
+from .workflow_center import run_workflow_cycle
 
 VALID_MODES = {"manual", "assist", "rules", "autopilot"}
 
@@ -81,6 +82,9 @@ def build_automation_router(db: Database, settings: Settings) -> APIRouter:
     def run_now(request: Request) -> dict[str, Any]:
         user = admin(request, mutate=True)
         result = run_once(db, settings, trigger="manual")
+        if not result.get("skipped"):
+            mode = str(result.get("mode") or "assist")
+            result["workflow"] = run_workflow_cycle(db, settings, mode=mode)
         audit(db, int(user["id"]), "automation_run_requested", "system", None, result)
         return result
 
