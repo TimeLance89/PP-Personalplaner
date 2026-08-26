@@ -20,7 +20,6 @@ def _interval(values: dict[str, object]) -> int:
 def _cleanup_assignment_decisions(db: Database) -> None:
     now = utcnow()
     with db.transaction() as conn:
-        # Eine bereits ausgelöste Abmeldung beendet jeden offenen Prüfvorgang für dieselbe Zuteilung.
         conn.execute(
             """UPDATE scheduled_actions SET state='cancelled',executed_at=?
                WHERE action_type='assignment_review' AND state='scheduled'
@@ -39,7 +38,6 @@ def _cleanup_assignment_decisions(db: Database) -> None:
                  )""",
             (now, now),
         )
-        # Wenn der vorbereitete Entscheid bereits existiert, ist die technische Ablaufwarnung redundant.
         conn.execute(
             """UPDATE workflow_inbox AS warning SET state='done',resolved_at=?,updated_at=?
                WHERE warning.item_type='assignment_end' AND warning.entity_type='assignment'
@@ -61,13 +59,13 @@ async def workflow_loop(db: Database, settings: Settings, stop: asyncio.Event) -
     while not stop.is_set():
         try:
             values = get_all(db, settings)
+            # Monatsberichte sind verpflichtende Dokumentation und daher unabhängig vom Autonomiegrad.
+            ensure_previous_month_reports(db)
             mode = str(values.get("autonomy_mode", "manual") or "manual").lower()
             emergency_stop = bool(values.get("automation_emergency_stop", False))
             if mode != "manual" and not emergency_stop:
                 _cleanup_assignment_decisions(db)
                 run_workflow_cycle(db, settings, mode=mode)
-                # Monatsberichte sind idempotent: pro Vormonat und Bereich entsteht genau ein Snapshot.
-                ensure_previous_month_reports(db)
                 _cleanup_assignment_decisions(db)
             minutes = _interval(values)
         except Exception:
