@@ -9,7 +9,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from pp.absence_api import build_absence_router
-from pp.absence_service import build_monthly_report, ensure_absence_schema, store_monthly_report, working_days
+from pp.absence_service import (
+    build_monthly_report,
+    ensure_absence_schema,
+    ensure_previous_month_reports,
+    get_stored_report,
+    store_monthly_report,
+    working_days,
+)
 from pp.api import build_router
 from pp.config import Settings
 from pp.db import Database
@@ -42,7 +49,7 @@ class AbsenceTests(unittest.TestCase):
         agency = self.client.post("/api/agencies", headers=headers, json={"name":"Test ZA","contact_name":"","email":"za@example.test","phone":"","active":True}).json()["id"]
         self.worker1 = self.client.post("/api/workers", headers=headers, json={"first_name":"Max","last_name":"Muster","employee_code":"ZA-1","agency_id":agency,"start_date":"2026-08-01","notes":"","status":"active","custom_data":{}}).json()["id"]
         self.worker2 = self.client.post("/api/workers", headers=headers, json={"first_name":"Erika","last_name":"Test","employee_code":"ZA-2","agency_id":agency,"start_date":"2026-08-01","notes":"","status":"active","custom_data":{}}).json()["id"]
-        self.client.post("/api/assignments", headers=headers, json={"worker_id":self.worker1,"department_id":self.dep1,"assigned_from":"2026-08-01","assigned_until":None,"notes":""})
+        self.client.post("/api/assignments", headers=headers, json={"worker_id":self.worker1,"department_id":self.dep1,"assigned_from":"2026-08-01","assigned_until":"2026-08-31","notes":""})
         self.client.post("/api/assignments", headers=headers, json={"worker_id":self.worker2,"department_id":self.dep2,"assigned_from":"2026-08-01","assigned_until":None,"notes":""})
         self.client.post("/api/users", headers=headers, json={"username":"leiter","display_name":"Leitung Versand","password":"noch-sicherer-pass","role":"leader","department_id":self.dep1,"active":True})
         self.client.post("/api/users", headers=headers, json={"username":"retoure","display_name":"Leitung Retouren","password":"noch-sicherer-pass","role":"leader","department_id":self.dep2,"active":True})
@@ -74,6 +81,11 @@ class AbsenceTests(unittest.TestCase):
         forbidden = self.client.post("/api/absences", headers={"X-CSRF-Token": csrf}, json={**payload, "worker_id": self.worker2})
         self.assertEqual(forbidden.status_code, 403)
 
+        beyond_assignment = self.client.post("/api/absences", headers={"X-CSRF-Token": csrf}, json={
+            **payload, "starts_on": "2026-08-31", "ends_on": "2026-09-01"
+        })
+        self.assertEqual(beyond_assignment.status_code, 403)
+
         rows = self.client.get("/api/absences?month=2026-08").json()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["department_id"], self.dep1)
@@ -104,6 +116,16 @@ class AbsenceTests(unittest.TestCase):
         report = store_monthly_report(self.db, "2026-07", self.dep1)
         self.assertTrue(report["finalized"])
         self.assertEqual(report["month"], "2026-07")
+
+    def test_previous_month_reports_are_generated_idempotently(self) -> None:
+        generated_first = ensure_previous_month_reports(self.db)
+        generated_second = ensure_previous_month_reports(self.db)
+        self.assertGreaterEqual(generated_first, 1)
+        self.assertEqual(generated_second, 0)
+        previous = date.today().replace(day=1)
+        previous = (previous.replace(day=1) - __import__('datetime').timedelta(days=1)).strftime("%Y-%m")
+        self.assertIsNotNone(get_stored_report(self.db, previous, self.dep1))
+        self.assertIsNotNone(get_stored_report(self.db, previous, None))
 
 
 if __name__ == "__main__":
