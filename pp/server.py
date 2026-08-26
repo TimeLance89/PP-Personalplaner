@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from .admin_settings_api import build_admin_settings_router
 from .api import build_router
 from .config import load_settings
 from .db import Database
@@ -17,10 +18,11 @@ settings = load_settings()
 db = Database(settings.data_dir / "personalplaner.sqlite3")
 db.initialize()
 
-app = FastAPI(title="PP – Personalplaner", version="0.1.0", docs_url=None, redoc_url=None)
+app = FastAPI(title="PP – Personalplaner", version="0.2.0", docs_url=None, redoc_url=None)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 app.add_middleware(PersonnelGuardMiddleware, db=db)
 app.include_router(build_router(db, settings))
+app.include_router(build_admin_settings_router(db, settings))
 
 STATIC = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
