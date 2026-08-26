@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Any
 
@@ -12,6 +13,21 @@ from .db import Database, utcnow
 from .services import audit
 from .workflow_center import ensure_workflow_schema, generate_briefing_for_user, inbox_for_user
 
+WORKFLOW_DEFAULTS: dict[str, Any] = {
+    "workflow_assignment_review_enabled": True,
+    "workflow_assignment_review_days": 7,
+    "briefing_enabled": True,
+    "briefing_hour": 6,
+    "briefing_days_ahead": 7,
+    "briefing_email_enabled": False,
+}
+WORKFLOW_BOOL_KEYS = {"workflow_assignment_review_enabled", "briefing_enabled", "briefing_email_enabled"}
+WORKFLOW_INT_LIMITS = {
+    "workflow_assignment_review_days": (1, 60),
+    "briefing_hour": (0, 23),
+    "briefing_days_ahead": (1, 30),
+}
+
 
 class NotificationBody(BaseModel):
     user_id: int
@@ -23,6 +39,10 @@ class ExtendAssignmentBody(BaseModel):
     assigned_until: str
 
 
+class WorkflowConfigBody(BaseModel):
+    values: dict[str, Any]
+
+
 def _user_with_department(db: Database, user: dict[str, Any]) -> dict[str, Any]:
     result = dict(user)
     if user.get("department_id"):
@@ -31,6 +51,51 @@ def _user_with_department(db: Database, user: dict[str, Any]) -> dict[str, Any]:
     else:
         result["department_name"] = ""
     return result
+
+
+def _read_workflow_config(db: Database) -> dict[str, Any]:
+    config = dict(WORKFLOW_DEFAULTS)
+    placeholders = ",".join("?" for _ in WORKFLOW_DEFAULTS)
+    rows = db.all(f"SELECT key,value FROM system_settings WHERE key IN ({placeholders})", tuple(WORKFLOW_DEFAULTS.keys()))
+    for row in rows:
+        key = str(row["key"])
+        raw = str(row["value"] or "")
+        if key in WORKFLOW_BOOL_KEYS:
+            config[key] = raw.strip().lower() in {"1", "true", "yes", "on"}
+        elif key in WORKFLOW_INT_LIMITS:
+            low, high = WORKFLOW_INT_LIMITS[key]
+            try:
+                config[key] = max(low, min(high, int(raw)))
+            except ValueError:
+                pass
+    return config
+
+
+def _write_workflow_config(db: Database, values: dict[str, Any], user_id: int) -> dict[str, Any]:
+    current = _read_workflow_config(db)
+    clean: dict[str, Any] = {}
+    for key, value in values.items():
+        if key not in WORKFLOW_DEFAULTS:
+            continue
+        if key in WORKFLOW_BOOL_KEYS:
+            clean[key] = bool(value)
+        elif key in WORKFLOW_INT_LIMITS:
+            low, high = WORKFLOW_INT_LIMITS[key]
+            try:
+                clean[key] = max(low, min(high, int(value)))
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail=f"Ungültiger Wert für {key}") from exc
+    with db.transaction() as conn:
+        for key, value in clean.items():
+            encoded = "true" if value is True else "false" if value is False else str(value)
+            conn.execute(
+                """INSERT INTO system_settings(key,value,is_secret,updated_at,updated_by)
+                   VALUES (?,?,0,?,?) ON CONFLICT(key) DO UPDATE SET
+                   value=excluded.value,is_secret=0,updated_at=excluded.updated_at,updated_by=excluded.updated_by""",
+                (key, encoded, utcnow(), user_id),
+            )
+            current[key] = value
+    return current
 
 
 def build_workflow_router(db: Database, settings: Settings) -> APIRouter:
@@ -106,7 +171,6 @@ def build_workflow_router(db: Database, settings: Settings) -> APIRouter:
         row = db.one("SELECT * FROM daily_briefings WHERE user_id=? ORDER BY briefing_date DESC,id DESC LIMIT 1", (user["id"],))
         if not row:
             return {"available": False}
-        import json
         try:
             summary = json.loads(row.pop("summary_json", "{}"))
         except (TypeError, json.JSONDecodeError):
@@ -119,7 +183,6 @@ def build_workflow_router(db: Database, settings: Settings) -> APIRouter:
     def briefings(request: Request) -> list[dict[str, Any]]:
         user = user_for(request)
         rows = db.all("SELECT * FROM daily_briefings WHERE user_id=? ORDER BY briefing_date DESC,id DESC LIMIT 31", (user["id"],))
-        import json
         for row in rows:
             try:
                 row["summary"] = json.loads(row.pop("summary_json", "{}"))
@@ -148,6 +211,20 @@ def build_workflow_router(db: Database, settings: Settings) -> APIRouter:
                WHERE s.department_id=? ORDER BY s.scheduled_for DESC,s.id DESC LIMIT 100""",
             (user.get("department_id") or -1,),
         )
+
+    @router.get("/admin/workflow/config")
+    def workflow_config(request: Request) -> dict[str, Any]:
+        user = user_for(request)
+        require_admin(user)
+        return _read_workflow_config(db)
+
+    @router.put("/admin/workflow/config")
+    def update_workflow_config(body: WorkflowConfigBody, request: Request) -> dict[str, Any]:
+        user = user_for(request, mutate=True)
+        require_admin(user)
+        config = _write_workflow_config(db, body.values, int(user["id"]))
+        audit(db, int(user["id"]), "workflow_config_updated", "system", None, {"keys": sorted(body.values.keys())})
+        return config
 
     @router.get("/admin/workflow/notifications")
     def notifications(request: Request) -> list[dict[str, Any]]:
