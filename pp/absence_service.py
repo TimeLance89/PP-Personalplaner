@@ -106,7 +106,7 @@ def assignment_allows_absence(db: Database, worker_id: int, department_id: int, 
              AND date(assigned_from)<=date(?)
              AND (assigned_until IS NULL OR date(assigned_until)>=date(?))
            ORDER BY id DESC LIMIT 1""",
-        (worker_id, department_id, ends_on, starts_on),
+        (worker_id, department_id, starts_on, ends_on),
     )
     return bool(row)
 
