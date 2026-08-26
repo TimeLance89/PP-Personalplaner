@@ -89,15 +89,51 @@ class AbsenceTests(unittest.TestCase):
         rows = self.client.get("/api/absences?month=2026-08").json()
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["department_id"], self.dep1)
-        report = self.client.get("/api/reports/absences/monthly?month=2026-08").json()
+        report = self.client.get("/api/reports/absences/monthly?month=2026-08&live=true").json()
         self.assertEqual(report["summary"]["sick_days"], 5.0)
         self.assertEqual(report["summary"]["affected_workers"], 1)
 
         self.client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf})
         self.login("retoure", "noch-sicherer-pass")
         self.assertEqual(self.client.get("/api/absences?month=2026-08").json(), [])
-        other_report = self.client.get("/api/reports/absences/monthly?month=2026-08").json()
+        other_report = self.client.get("/api/reports/absences/monthly?month=2026-08&live=true").json()
         self.assertEqual(other_report["summary"]["sick_days"], 0.0)
+
+    def test_quick_sick_runs_until_return_and_remains_department_scoped(self) -> None:
+        csrf = self.login("leiter", "noch-sicherer-pass")
+        forbidden = self.client.post(
+            "/api/absences/quick-sick",
+            headers={"X-CSRF-Token": csrf},
+            json={"worker_id": self.worker2},
+        )
+        self.assertEqual(forbidden.status_code, 403)
+        self.client.post("/api/auth/logout", headers={"X-CSRF-Token": csrf})
+
+        csrf = self.login("retoure", "noch-sicherer-pass")
+        created = self.client.post(
+            "/api/absences/quick-sick",
+            headers={"X-CSRF-Token": csrf},
+            json={"worker_id": self.worker2},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        absence_id = created.json()["id"]
+        self.assertTrue(created.json()["open_ended"])
+
+        month = date.today().strftime("%Y-%m")
+        rows = self.client.get(f"/api/absences?month={month}").json()
+        row = next(x for x in rows if x["id"] == absence_id)
+        self.assertEqual(row["absence_code"], "sick")
+        self.assertTrue(row["open_ended"])
+        self.assertGreaterEqual(row["working_days"], 0.0)
+
+        returned = self.client.post(
+            f"/api/absences/{absence_id}/return",
+            headers={"X-CSRF-Token": csrf},
+        )
+        self.assertEqual(returned.status_code, 200, returned.text)
+        closed = self.db.one("SELECT open_ended,ends_on FROM absences WHERE id=?", (absence_id,))
+        self.assertEqual(closed["open_ended"], 0)
+        self.assertTrue(closed["ends_on"])
 
     def test_cross_month_report_counts_only_days_in_selected_month(self) -> None:
         sick = self.db.one("SELECT id FROM absence_types WHERE code='sick'")
