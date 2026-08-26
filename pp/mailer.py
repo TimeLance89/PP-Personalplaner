@@ -158,7 +158,8 @@ def _m365_send(db: Database, settings: Settings, values: dict[str, Any], to: str
     except HTTPError as exc:
         try:
             payload = json.loads(exc.read().decode("utf-8"))
-            detail = payload.get("error", {}).get("message") or str(exc)
+            error = payload.get("error")
+            detail = error.get("message") if isinstance(error, dict) else error or str(exc)
         except Exception:
             detail = str(exc)
         raise MailDeliveryError(f"Microsoft-365-Versand fehlgeschlagen: {str(detail)[:500]}") from exc
@@ -166,7 +167,7 @@ def _m365_send(db: Database, settings: Settings, values: dict[str, Any], to: str
         raise MailDeliveryError(f"Microsoft Graph ist nicht erreichbar: {exc.reason}") from exc
 
 
-def send_mail(settings: Settings, to: str, subject: str, body: str) -> None:
+def send_mail(settings: Settings, to: str, subject: str, body: str, *, context: str = "generic") -> None:
     if not to or not _addresses(to):
         raise MailConfigurationError("Bei der Zeitarbeitsfirma ist keine E-Mail-Adresse hinterlegt.")
 
@@ -178,7 +179,7 @@ def send_mail(settings: Settings, to: str, subject: str, body: str) -> None:
 
     cc = _addresses(str(values.get("mail_default_cc", "")))
     bcc = _addresses(str(values.get("mail_default_bcc", "")))
-    if bool(values.get("notify_admin_on_offboarding")) and subject.lower().startswith("abmeldung"):
+    if context == "offboarding" and bool(values.get("notify_admin_on_offboarding")):
         admin_email = str(values.get("notification_admin_email", "")).strip()
         if admin_email and admin_email not in cc:
             cc.append(admin_email)
