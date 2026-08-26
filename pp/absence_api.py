@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request
@@ -32,6 +32,10 @@ class AbsenceBody(BaseModel):
     ends_on: str
     day_part: Literal["full", "morning", "afternoon"] = "full"
     note: str = Field(default="", max_length=1000)
+
+
+class QuickSickBody(BaseModel):
+    worker_id: int
 
 
 class AbsenceTypeBody(BaseModel):
@@ -66,6 +70,29 @@ def build_absence_router(db: Database, settings: Settings) -> APIRouter:
             raise HTTPException(status_code=404, detail="Abwesenheit nicht gefunden")
         if user["role"] != "admin" and int(row["department_id"]) != int(user.get("department_id") or -1):
             raise HTTPException(status_code=403, detail="Kein Zugriff auf diese Abwesenheit")
+        return row
+
+    def active_assignment_for_quick_sick(worker_id: int, user: dict[str, Any]) -> dict[str, Any]:
+        today = date.today().isoformat()
+        params: list[Any] = [worker_id, today, today]
+        filter_sql = ""
+        if user["role"] != "admin":
+            if not user.get("department_id"):
+                raise HTTPException(status_code=403, detail="Dieser Bereichsleiter hat keine Abteilung")
+            filter_sql = " AND a.department_id=?"
+            params.append(int(user["department_id"]))
+        row = db.one(
+            f"""SELECT a.id,a.department_id,a.assigned_from,a.assigned_until
+                FROM assignments a JOIN workers w ON w.id=a.worker_id
+                WHERE a.worker_id=? AND w.status!='archived'
+                  AND date(a.assigned_from)<=date(?)
+                  AND (a.assigned_until IS NULL OR date(a.assigned_until)>=date(?))
+                  {filter_sql}
+                ORDER BY a.id DESC LIMIT 1""",
+            tuple(params),
+        )
+        if not row:
+            raise HTTPException(status_code=403 if user["role"] != "admin" else 422, detail="Für heute existiert keine passende Zuteilung")
         return row
 
     def validate_absence(body: AbsenceBody, user: dict[str, Any], *, exclude_id: int | None = None) -> tuple[date, date, int]:
@@ -155,13 +182,44 @@ def build_absence_router(db: Database, settings: Settings) -> APIRouter:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
         return absence_rows(db, department_id=dep_id, month=month)
 
+    @router.post("/absences/quick-sick")
+    def quick_sick(body: QuickSickBody, request: Request) -> dict[str, Any]:
+        user = user_for(request, mutate=True)
+        assignment = active_assignment_for_quick_sick(body.worker_id, user)
+        today = date.today().isoformat()
+        existing = overlapping_absence(db, body.worker_id, today, today)
+        if existing:
+            raise HTTPException(status_code=409, detail=f"Für heute existiert bereits eine Abwesenheit ({existing['label']})")
+        sick = db.one("SELECT id FROM absence_types WHERE code='sick' AND active=1")
+        if not sick:
+            raise HTTPException(status_code=422, detail="Die Abwesenheitsart Krankheit ist nicht aktiv")
+        entity_id = db.execute(
+            """INSERT INTO absences(worker_id,department_id,absence_type_id,starts_on,ends_on,day_part,open_ended,note,recorded_by,created_at,updated_at)
+               VALUES (?,?,?,?,?,'full',1,'',?,?,?)""",
+            (body.worker_id, assignment["department_id"], sick["id"], today, today, user["id"], utcnow(), utcnow()),
+        )
+        audit(db, int(user["id"]), "sickness_started", "absence", entity_id, {"worker_id": body.worker_id, "starts_on": today})
+        return {"id": entity_id, "starts_on": today, "open_ended": True}
+
+    @router.post("/absences/{absence_id}/return")
+    def return_from_absence(absence_id: int, request: Request) -> dict[str, Any]:
+        user = user_for(request, mutate=True)
+        row = absence_for_user(absence_id, user)
+        if not bool(row.get("open_ended")):
+            raise HTTPException(status_code=409, detail="Diese Abwesenheit ist bereits beendet")
+        starts = date.fromisoformat(row["starts_on"])
+        last_absent = max(starts, date.today() - timedelta(days=1))
+        db.execute("UPDATE absences SET ends_on=?,open_ended=0,updated_at=? WHERE id=?", (last_absent.isoformat(), utcnow(), absence_id))
+        audit(db, int(user["id"]), "sickness_returned", "absence", absence_id, {"last_absent_day": last_absent.isoformat()})
+        return {"ok": True, "ends_on": last_absent.isoformat()}
+
     @router.post("/absences")
     def create_absence(body: AbsenceBody, request: Request) -> dict[str, Any]:
         user = user_for(request, mutate=True)
         starts, ends, department_id = validate_absence(body, user)
         entity_id = db.execute(
-            """INSERT INTO absences(worker_id,department_id,absence_type_id,starts_on,ends_on,day_part,note,recorded_by,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            """INSERT INTO absences(worker_id,department_id,absence_type_id,starts_on,ends_on,day_part,open_ended,note,recorded_by,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,0,?,?,?,?)""",
             (
                 body.worker_id, department_id, body.absence_type_id, starts.isoformat(), ends.isoformat(), body.day_part,
                 body.note.strip()[:1000], user["id"], utcnow(), utcnow(),
@@ -181,7 +239,7 @@ def build_absence_router(db: Database, settings: Settings) -> APIRouter:
         if user["role"] != "admin" and int(existing["department_id"]) != department_id:
             raise HTTPException(status_code=403, detail="Abwesenheiten dürfen nicht in einen anderen Bereich verschoben werden")
         db.execute(
-            """UPDATE absences SET worker_id=?,department_id=?,absence_type_id=?,starts_on=?,ends_on=?,day_part=?,note=?,updated_at=? WHERE id=?""",
+            """UPDATE absences SET worker_id=?,department_id=?,absence_type_id=?,starts_on=?,ends_on=?,day_part=?,open_ended=0,note=?,updated_at=? WHERE id=?""",
             (
                 body.worker_id, department_id, body.absence_type_id, starts.isoformat(), ends.isoformat(), body.day_part,
                 body.note.strip()[:1000], utcnow(), absence_id,
@@ -199,14 +257,14 @@ def build_absence_router(db: Database, settings: Settings) -> APIRouter:
         return {"ok": True}
 
     @router.get("/reports/absences/monthly")
-    def monthly_report(request: Request, month: str, department_id: int | None = None, finalized: bool = False) -> dict[str, Any]:
+    def monthly_report(request: Request, month: str, department_id: int | None = None, live: bool = False) -> dict[str, Any]:
         user = user_for(request)
         dep_id = scoped_department(user, department_id)
         try:
-            month_bounds(month)
+            month_start, _ = month_bounds(month)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if finalized:
+        if not live and month_start < date.today().replace(day=1):
             stored = get_stored_report(db, month, dep_id)
             if stored:
                 return stored
@@ -223,7 +281,7 @@ def build_absence_router(db: Database, settings: Settings) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         report = store_monthly_report(db, month, dep_id)
-        audit(db, int(user["id"]), "absence_monthly_report_finalized", "department", dep_id, {"month": month})
+        audit(db, int(user["id"]), "absence_monthly_report_refreshed", "department", dep_id, {"month": month})
         return report
 
     @router.get("/reports/absences/monthly.csv")
