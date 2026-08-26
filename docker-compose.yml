@@ -1,49 +1,32 @@
 services:
-  personalplaner:
-    build:
-      context: .
-      args:
-        APP_UID: ${PUID:-1000}
-        APP_GID: ${PGID:-1000}
+  pp-personalplaner:
+    build: .
     image: pp-personalplaner:latest
     container_name: pp-personalplaner
-    init: true
     restart: unless-stopped
-    user: "${PUID:-1000}:${PGID:-1000}"
+    init: true
+    user: "1000:10"
     read_only: true
-    pids_limit: 256
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    pids_limit: 256
     ports:
-      - "${PP_BIND_ADDRESS:-0.0.0.0}:8780:8780"
+      - "8780:8780"
     volumes:
       - ./data:/app/data
     environment:
       PP_DATA_DIR: /app/data
       PP_HOST: 0.0.0.0
       PP_PORT: 8780
-      PP_SETUP_TOKEN: ${PP_SETUP_TOKEN:-}
-      PP_ALLOWED_HOSTS: ${PP_ALLOWED_HOSTS:-}
-      PP_COOKIE_SECURE: ${PP_COOKIE_SECURE:-false}
-      PP_SESSION_HOURS: ${PP_SESSION_HOURS:-12}
-      PP_COMPANY_NAME: ${PP_COMPANY_NAME:-Meine Firma}
-      PP_COMPANY_CONTACT: ${PP_COMPANY_CONTACT:-Personalplanung}
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_USER: ${SMTP_USER:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_FROM: ${SMTP_FROM:-}
-      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
-      SMTP_SSL: ${SMTP_SSL:-false}
-      TZ: ${TZ:-Europe/Berlin}
+      TZ: Europe/Berlin
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=128m,mode=1777
-      - /home/pp:rw,nosuid,nodev,size=32m,mode=0700,uid=${PUID:-1000},gid=${PGID:-1000}
+      - /home/pp:rw,nosuid,nodev,size=32m,mode=0700,uid=1000,gid=10
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8780/api/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s
