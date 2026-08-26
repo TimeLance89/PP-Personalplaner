@@ -18,6 +18,7 @@ from .automation_engine import automation_loop, ensure_automation_schema
 from .config import load_settings
 from .db import Database
 from .hardening import PersonnelGuardMiddleware
+from .system_settings import ensure_schema as ensure_system_settings_schema
 from .workflow_api import build_workflow_router
 from .workflow_center import ensure_workflow_schema
 from .workflow_runner import workflow_loop
@@ -25,6 +26,7 @@ from .workflow_runner import workflow_loop
 settings = load_settings()
 db = Database(settings.data_dir / "personalplaner.sqlite3")
 db.initialize()
+ensure_system_settings_schema(db)
 ensure_automation_schema(db)
 ensure_workflow_schema(db)
 
