@@ -4,9 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#101214">
   <title>PP – Personalplaner</title>
   <link rel="stylesheet" href="/static/styles.css">
   <link rel="stylesheet" href="/static/settings.css">
+  <link rel="stylesheet" href="/static/warehouse.css">
 </head>
 <body>
   <div id="toast" class="toast" hidden></div>
@@ -14,7 +16,7 @@
   <main id="authShell" class="auth-shell">
     <section class="auth-card">
       <div class="brand large"><span>PP</span><strong>Personalplaner</strong></div>
-      <p class="muted">Übersicht und Steuerung für eingesetztes Zeitarbeitspersonal.</p>
+      <p class="muted">People Operations für den Warehouse-Einsatz von Zeitarbeitspersonal.</p>
 
       <form id="loginForm" class="stack">
         <h1>Anmelden</h1>
@@ -54,8 +56,8 @@
     <section class="content">
       <header class="topbar">
         <div>
-          <p id="eyebrow" class="eyebrow">Personalplanung</p>
-          <h1 id="viewTitle">Übersicht</h1>
+          <p id="eyebrow" class="eyebrow">People Operations</p>
+          <h1 id="viewTitle">Control Tower</h1>
         </div>
         <div id="contextBadge" class="context-badge"></div>
       </header>
@@ -70,5 +72,6 @@
 
   <dialog id="modal"><form method="dialog" class="modal-card"><div id="modalBody"></div></form></dialog>
   <script src="/static/app.js" defer></script>
+  <script src="/static/warehouse_ui.js" defer></script>
 </body>
 </html>
