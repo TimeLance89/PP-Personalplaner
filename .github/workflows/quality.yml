@@ -21,6 +21,7 @@ jobs:
       - run: node --check pp/static/warehouse_ui.js
       - run: node --check pp/static/autonomy_ui.js
       - run: node --check pp/static/workflow_ui.js
+      - run: node --check pp/static/absence_ui.js
       - run: python -m unittest discover -s tests -v
 
   docker:
