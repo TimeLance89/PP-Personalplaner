@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/static/warehouse.css">
   <link rel="stylesheet" href="/static/autonomy.css">
   <link rel="stylesheet" href="/static/workflow.css">
+  <link rel="stylesheet" href="/static/absence.css">
 </head>
 <body>
   <div id="toast" class="toast" hidden></div>
@@ -45,7 +46,9 @@
       <nav id="mainNav">
         <button data-view="dashboard" class="active">Übersicht</button>
         <button data-view="workers">Personal</button>
+        <button data-view="absences">Abwesenheiten</button>
         <button data-view="offboardings">Abmeldungen</button>
+        <button data-view="reports">Berichte</button>
         <button data-view="admin" data-admin-only>Verwaltung</button>
         <button data-view="audit" data-admin-only>Aktivitäten</button>
       </nav>
@@ -66,7 +69,9 @@
 
       <section id="view-dashboard" class="view"></section>
       <section id="view-workers" class="view" hidden></section>
+      <section id="view-absences" class="view" hidden></section>
       <section id="view-offboardings" class="view" hidden></section>
+      <section id="view-reports" class="view" hidden></section>
       <section id="view-admin" class="view" hidden></section>
       <section id="view-audit" class="view" hidden></section>
     </section>
@@ -77,5 +82,6 @@
   <script src="/static/warehouse_ui.js" defer></script>
   <script src="/static/autonomy_ui.js" defer></script>
   <script src="/static/workflow_ui.js" defer></script>
+  <script src="/static/absence_ui.js" defer></script>
 </body>
 </html>
