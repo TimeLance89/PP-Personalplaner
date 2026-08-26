@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+from .absence_service import ensure_absence_schema, ensure_previous_month_reports
 from .config import Settings
 from .db import Database, utcnow
 from .system_settings import get_all
@@ -56,6 +57,7 @@ def _cleanup_assignment_decisions(db: Database) -> None:
 
 async def workflow_loop(db: Database, settings: Settings, stop: asyncio.Event) -> None:
     ensure_workflow_schema(db)
+    ensure_absence_schema(db)
     while not stop.is_set():
         try:
             values = get_all(db, settings)
@@ -64,6 +66,8 @@ async def workflow_loop(db: Database, settings: Settings, stop: asyncio.Event) -
             if mode != "manual" and not emergency_stop:
                 _cleanup_assignment_decisions(db)
                 run_workflow_cycle(db, settings, mode=mode)
+                # Monatsberichte sind idempotent: pro Vormonat und Bereich entsteht genau ein Snapshot.
+                ensure_previous_month_reports(db)
                 _cleanup_assignment_decisions(db)
             minutes = _interval(values)
         except Exception:
