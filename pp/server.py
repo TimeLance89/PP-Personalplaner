@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
@@ -11,6 +13,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .admin_maintenance_api import build_admin_maintenance_router
 from .admin_settings_api import build_admin_settings_router
 from .api import build_router
+from .automation_api import build_automation_router
+from .automation_engine import automation_loop, ensure_automation_schema
 from .config import load_settings
 from .db import Database
 from .hardening import PersonnelGuardMiddleware
@@ -18,13 +22,32 @@ from .hardening import PersonnelGuardMiddleware
 settings = load_settings()
 db = Database(settings.data_dir / "personalplaner.sqlite3")
 db.initialize()
+ensure_automation_schema(db)
 
-app = FastAPI(title="PP – Personalplaner", version="0.2.0", docs_url=None, redoc_url=None)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    stop = asyncio.Event()
+    task = asyncio.create_task(automation_loop(db, settings, stop), name="pp-automation-engine")
+    app.state.automation_stop = stop
+    app.state.automation_task = task
+    try:
+        yield
+    finally:
+        stop.set()
+        try:
+            await asyncio.wait_for(task, timeout=5)
+        except (TimeoutError, asyncio.CancelledError):
+            task.cancel()
+
+
+app = FastAPI(title="PP – Personalplaner", version="0.3.0", docs_url=None, redoc_url=None, lifespan=lifespan)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 app.add_middleware(PersonnelGuardMiddleware, db=db, settings=settings)
 app.include_router(build_router(db, settings))
 app.include_router(build_admin_settings_router(db, settings))
 app.include_router(build_admin_maintenance_router(db, settings))
+app.include_router(build_automation_router(db, settings))
 
 STATIC = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
