@@ -91,15 +91,15 @@ def build_absence_router(db: Database, settings: Settings) -> APIRouter:
                 """SELECT department_id FROM assignments WHERE worker_id=?
                    AND date(assigned_from)<=date(?) AND (assigned_until IS NULL OR date(assigned_until)>=date(?))
                    ORDER BY id DESC""",
-                (body.worker_id, body.ends_on, body.starts_on),
+                (body.worker_id, body.starts_on, body.ends_on),
             )
             if not assignments:
-                raise HTTPException(status_code=422, detail="Für den Zeitraum existiert keine passende Zuteilung")
+                raise HTTPException(status_code=422, detail="Für den gesamten Zeitraum existiert keine passende Zuteilung")
             department_id = int(assignments[0]["department_id"])
         else:
             department_id = int(user.get("department_id") or 0)
             if not department_id or not assignment_allows_absence(db, body.worker_id, department_id, body.starts_on, body.ends_on):
-                raise HTTPException(status_code=403, detail="Der Zeitarbeiter war im angegebenen Zeitraum nicht Ihrer Abteilung zugeteilt")
+                raise HTTPException(status_code=403, detail="Der Zeitarbeiter war im gesamten angegebenen Zeitraum nicht Ihrer Abteilung zugeteilt")
 
         overlap = overlapping_absence(db, body.worker_id, body.starts_on, body.ends_on, exclude_id=exclude_id)
         if overlap:
